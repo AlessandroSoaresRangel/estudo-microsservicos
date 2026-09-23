@@ -66,7 +66,8 @@ class GatewayRoutesIntegrationTest {
                 .expectStatus().isOk()
                 .expectBody(String.class)
                 .consumeWith(response -> org.assertj.core.api.Assertions.assertThat(response.getResponseBody())
-                        .contains("jvm_memory_used_bytes"));
+                        .contains("jvm_memory_used_bytes")
+                        .contains("http_server_requests_seconds_bucket"));
     }
 
     @Test

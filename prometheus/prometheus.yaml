@@ -7,3 +7,8 @@ scrape_configs:
     metrics_path: /actuator/prometheus
     static_configs:
       - targets: ['gateway:8080']
+
+  - job_name: task-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['task-service-1:8080', 'task-service-2:8080', 'task-service-3:8080']

@@ -7,6 +7,8 @@ Projeto de estudo sobre microsserviços com **Java 21**, **Spring Boot**, **Spri
 ```mermaid
 flowchart LR
     C[Cliente] -->|HTTP :8081| G[Spring Cloud Gateway]
+    P[Prometheus :9090] -->|scrape /actuator/prometheus| G
+    D[Grafana :3000] -->|consulta Prometheus| P
     G -->|descoberta e balanceamento| E[Eureka Server :8761]
     G --> T1[Task Service 1]
     G --> T2[Task Service 2]
@@ -23,13 +25,15 @@ flowchart LR
 | `task-service-1` | Primeira instância da API de tarefas | Rede interna Docker, porta `8080` |
 | `task-service-2` | Segunda instância da API de tarefas | Rede interna Docker, porta `8080` |
 | `task-service-3` | Terceira instância da API de tarefas | Rede interna Docker, porta `8080` |
+| `prometheus` | Coleta métricas do Gateway | `http://localhost:9090` |
+| `grafana` | Dashboards para visualizar métricas do Prometheus | `http://localhost:3000` |
 
 As instâncias Task Service não publicam suas portas no host. O acesso externo às APIs é feito pelo Gateway. No Compose, o Gateway publica a porta `8081` do host e encaminha para a porta `8080` do container.
 
 ## Requisitos
 
 - Docker com Docker Compose plugin
-- Portas `8081` e `8761` livres no host
+- Portas `8081`, `8761`, `9090` e `3000` livres no host
 
 ## Executar
 
@@ -42,7 +46,7 @@ docker compose up --build -d
 Acompanhar os logs:
 
 ```bash
-docker compose logs -f gateway eureka-server task-service-1 task-service-2 task-service-3
+docker compose logs -f gateway eureka-server task-service-1 task-service-2 task-service-3 prometheus grafana
 ```
 
 Verificar os containers:
@@ -100,6 +104,26 @@ curl http://localhost:8081/api/v1/health/readiness
 
 Os endpoints diretos do Actuator existem dentro de cada instância, mas as instâncias não são publicadas diretamente no host.
 
+### Métricas e Prometheus
+
+O Gateway e o Task Service expõem os endpoints Actuator de métricas. O Prometheus configurado em `prometheus/prometheus.yaml` coleta o Gateway e as três réplicas do Task Service pela rede interna do Compose, em `/actuator/prometheus`.
+
+- Interface do Prometheus: `http://localhost:9090`
+- Métricas do Gateway em formato Prometheus: `http://localhost:8081/actuator/prometheus`
+- Catálogo de métricas do Gateway: `http://localhost:8081/actuator/metrics`
+
+Exemplo para consultar o endpoint Prometheus do Gateway:
+
+```bash
+curl http://localhost:8081/actuator/prometheus
+```
+
+As três réplicas do Task Service aparecem no Prometheus no job `task-service`; a label `instance` distingue cada container.
+
+### Grafana
+
+Abra `http://localhost:3000` e entre com o usuário e a senha padrão `admin`. O Grafana solicitará a troca da senha no primeiro acesso. A fonte Prometheus e o dashboard **TaskFlow - Gateway e Task Service** são provisionados automaticamente; o dashboard mostra memória heap, CPU, taxa de requisições e latência p95 do Gateway e das instâncias do Task Service. Os dados locais do Grafana são mantidos no volume `grafana_data`.
+
 ### Eureka
 
 Abra `http://localhost:8761` para visualizar o painel do Eureka. O endpoint de registro também pode ser consultado com:
@@ -143,6 +167,7 @@ Há também verificações de configuração em `tests/`, por exemplo:
 sh tests/test_gateway_timeout.sh
 sh tests/test_gateway_failover.sh
 sh tests/test_eureka_discovery.sh
+sh tests/test_prometheus_config.sh
 ```
 
 ## Estrutura do repositório
@@ -150,6 +175,8 @@ sh tests/test_eureka_discovery.sh
 ```text
 .
 ├── docker-compose.yml
+├── prometheus/        # configuração de scrape do Gateway
+├── grafana/           # datasource e dashboard provisionados
 ├── eureka-server/     # servidor Eureka
 ├── gateway/           # Spring Cloud Gateway e Resilience4j
 ├── task-service/      # API Spring Boot replicada em três containers

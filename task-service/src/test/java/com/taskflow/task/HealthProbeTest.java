@@ -37,6 +37,8 @@ class HealthProbeTest {
         assertThat(metrics.getStatusCode().value()).isEqualTo(200);
         assertThat(metrics.getBody()).contains("names");
         assertThat(prometheus.getStatusCode().value()).isEqualTo(200);
-        assertThat(prometheus.getBody()).contains("jvm_memory_used_bytes");
+        assertThat(prometheus.getBody())
+                .contains("jvm_memory_used_bytes")
+                .contains("http_server_requests_seconds_bucket");
     }
 }
