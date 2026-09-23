@@ -28,4 +28,15 @@ class HealthProbeTest {
             assertThat(response.getBody()).as(path).contains("\"status\":\"UP\"");
         }
     }
+
+    @Test
+    void exposesMetricsAndPrometheusEndpoints() {
+        ResponseEntity<String> metrics = restTemplate.getForEntity("/actuator/metrics", String.class);
+        ResponseEntity<String> prometheus = restTemplate.getForEntity("/actuator/prometheus", String.class);
+
+        assertThat(metrics.getStatusCode().value()).isEqualTo(200);
+        assertThat(metrics.getBody()).contains("names");
+        assertThat(prometheus.getStatusCode().value()).isEqualTo(200);
+        assertThat(prometheus.getBody()).contains("jvm_memory_used_bytes");
+    }
 }

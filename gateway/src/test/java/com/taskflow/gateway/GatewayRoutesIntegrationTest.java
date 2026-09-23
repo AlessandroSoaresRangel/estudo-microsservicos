@@ -52,6 +52,25 @@ class GatewayRoutesIntegrationTest {
 
     @Test
     @Order(1)
+    void exposesMetricsAndPrometheusEndpoints() {
+        webTestClient.get()
+                .uri("/actuator/metrics")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.names").isArray();
+
+        webTestClient.get()
+                .uri("/actuator/prometheus")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .consumeWith(response -> org.assertj.core.api.Assertions.assertThat(response.getResponseBody())
+                        .contains("jvm_memory_used_bytes"));
+    }
+
+    @Test
+    @Order(2)
     void routesTasksAndStripsVersionPrefixWhileRetryingUnavailableInstance() {
         for (int i = 0; i < 9; i++) {
             webTestClient.get()
@@ -64,7 +83,7 @@ class GatewayRoutesIntegrationTest {
     }
 
     @Test
-    @Order(2)
+    @Order(3)
     void routesReadinessProbeToTaskService() {
         webTestClient.get()
                 .uri("/api/v1/health/readiness")
@@ -75,7 +94,7 @@ class GatewayRoutesIntegrationTest {
     }
 
     @Test
-    @Order(3)
+    @Order(4)
     void opensCircuitAndUsesFallbackAfterRepeatedBackendFailures() {
         failBackends.set(true);
         try {

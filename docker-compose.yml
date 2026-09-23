@@ -52,3 +52,12 @@ services:
       APP_VERSION: "${APP_VERSION:-1.0.0}"
     depends_on:
       - eureka-server
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - gateway
