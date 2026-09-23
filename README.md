@@ -1,6 +1,6 @@
 # TaskFlow — laboratório de microsserviços
 
-Projeto de estudo sobre microsserviços com **Java 21**, **Spring Boot**, **Spring Cloud Gateway**, **Eureka** e **Docker Compose**. O Gateway recebe as chamadas dos clientes, descobre os serviços pelo Eureka e distribui as requisições entre três instâncias do serviço de tarefas.
+Projeto de estudo sobre microsserviços com **Java 21**, **Spring Boot**, **Spring Cloud Gateway**, **Eureka**, **Spring Data JPA**, **PostgreSQL** e **Docker Compose**. O Gateway recebe as chamadas dos clientes, descobre os serviços pelo Eureka e distribui as requisições entre três instâncias do serviço de tarefas.
 
 ## Arquitetura
 
@@ -23,6 +23,21 @@ flowchart LR
     T3 -.->|registra instância e renova lease| E
 ```
 
+### Detalhe do Task Service
+
+```mermaid
+flowchart TB
+    G[Gateway] --> LB{balanceamento de carga}
+    LB --> T1[Task Service 1<br/>Spring Boot + Spring Data JPA]
+    LB --> T2[Task Service 2<br/>Spring Boot + Spring Data JPA]
+    LB --> T3[Task Service 3<br/>Spring Boot + Spring Data JPA]
+    T1 --> DB[(PostgreSQL :5432)]
+    T2 --> DB
+    T3 --> DB
+```
+
+As três instâncias compartilham o banco `task-db`. O PostgreSQL persiste os dados no volume Docker `task_db_data` e não publica sua porta no host.
+
 | Componente | Função | Acesso local |
 |---|---|---|
 | `gateway` | Roteamento, balanceamento, retry, timeout e circuit breaker | `http://localhost:8081` |
@@ -30,6 +45,7 @@ flowchart LR
 | `task-service-1` | Primeira instância da API de tarefas | Rede interna Docker, porta `8080` |
 | `task-service-2` | Segunda instância da API de tarefas | Rede interna Docker, porta `8080` |
 | `task-service-3` | Terceira instância da API de tarefas | Rede interna Docker, porta `8080` |
+| `task-db` | Banco PostgreSQL compartilhado pelas instâncias do Task Service | Rede interna Docker, porta `5432` |
 | `prometheus` | Coleta métricas do Gateway | `http://localhost:9090` |
 | `grafana` | Dashboards para visualizar métricas do Prometheus | `http://localhost:3000` |
 | `zipkin` | Coleta e visualização de traces distribuídos | `http://localhost:9411` |
@@ -54,7 +70,7 @@ docker compose up --build -d
 Acompanhar os logs:
 
 ```bash
-docker compose logs -f gateway eureka-server task-service-1 task-service-2 task-service-3 prometheus grafana zipkin
+docker compose logs -f gateway eureka-server task-service-1 task-service-2 task-service-3 task-db prometheus grafana zipkin
 ```
 
 Verificar os containers:
@@ -76,6 +92,8 @@ APP_VERSION=1.2.0 docker compose up --build -d
 ```
 
 O valor padrão é `1.0.0`.
+
+As credenciais do PostgreSQL ficam em `task-service/.env`. Ajuste `POSTGRES_DB`, `POSTGRES_USER` e `POSTGRES_PASSWORD` nesse arquivo antes de subir o ambiente. O modelo versionado está em `task-service/.env.example`; o arquivo com as credenciais locais é ignorado pelo Git.
 
 ## Endpoints
 

@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+root="$(dirname "$0")/.."
+compose="$root/docker-compose.yml"
+service_env="$root/task-service/.env.example"
+application="$root/task-service/src/main/resources/application.properties"
+
+[ "$(grep -c './task-service/.env' "$compose")" -eq 4 ]
+grep -Fq 'POSTGRES_DB=' "$service_env"
+grep -Fq 'POSTGRES_USER=' "$service_env"
+grep -Fq 'POSTGRES_PASSWORD=' "$service_env"
+grep -Fq 'spring.datasource.username=${POSTGRES_USER:taskuser}' "$application"
+grep -Fq 'spring.datasource.password=${POSTGRES_PASSWORD:taskpass}' "$application"
+grep -Fq '!.env.example' "$root/.gitignore"
