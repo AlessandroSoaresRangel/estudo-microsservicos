@@ -1,0 +1,31 @@
+package com.taskflow.task;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.http.ResponseEntity;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "eureka.client.enabled=false")
+class HealthProbeTest {
+
+    @Autowired
+    private TestRestTemplate restTemplate;
+
+    @Test
+    void exposesLivenessAndReadinessProbes() {
+        for (var path : new String[]{
+                "/actuator/health/liveness",
+                "/actuator/health/readiness",
+                "/livez",
+                "/readyz"
+        }) {
+            ResponseEntity<String> response = restTemplate.getForEntity(path, String.class);
+
+            assertThat(response.getStatusCode().value()).as(path).isEqualTo(200);
+            assertThat(response.getBody()).as(path).contains("\"status\":\"UP\"");
+        }
+    }
+}
