@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -16,9 +17,16 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
+@AutoConfigureObservability
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "eureka.client.enabled=false",
+        "management.zipkin.tracing.export.enabled=false",
+        "management.tracing.sampling.probability=1.0",
+        "management.tracing.propagation.type=W3C",
+        "spring.cloud.gateway.server.webflux.metrics.enabled=true",
+        "spring.cloud.gateway.server.webflux.observability.enabled=true",
         "resilience4j.circuitbreaker.instances.taskServiceCircuitBreaker.slidingWindowSize=4",
         "resilience4j.circuitbreaker.instances.taskServiceCircuitBreaker.minimumNumberOfCalls=2",
         "resilience4j.circuitbreaker.instances.taskServiceCircuitBreaker.failureRateThreshold=50",
@@ -28,6 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 class GatewayRoutesIntegrationTest {
 
     private static final AtomicBoolean failBackends = new AtomicBoolean(false);
+    private static final AtomicReference<String> observedTraceparent = new AtomicReference<>();
+    private static final AtomicReference<String> observedTraceHeaders = new AtomicReference<>();
     private static final HttpServer backendOne = startBackend("one");
     private static final HttpServer backendTwo = startBackend("two");
 
@@ -72,6 +82,21 @@ class GatewayRoutesIntegrationTest {
 
     @Test
     @Order(2)
+    void createsAndPropagatesTraceContextToDownstreamService() {
+        observedTraceparent.set(null);
+
+        webTestClient.get()
+                .uri("/api/v1/tasks")
+                .exchange()
+                .expectStatus().isOk();
+
+        org.assertj.core.api.Assertions.assertThat(observedTraceparent.get())
+                .as("Downstream trace headers: %s", observedTraceHeaders.get())
+                .matches("00-[0-9a-f]{32}-[0-9a-f]{16}-01");
+    }
+
+    @Test
+    @Order(3)
     void routesTasksAndStripsVersionPrefixWhileRetryingUnavailableInstance() {
         for (int i = 0; i < 9; i++) {
             webTestClient.get()
@@ -84,7 +109,7 @@ class GatewayRoutesIntegrationTest {
     }
 
     @Test
-    @Order(3)
+    @Order(4)
     void routesReadinessProbeToTaskService() {
         webTestClient.get()
                 .uri("/api/v1/health/readiness")
@@ -95,7 +120,7 @@ class GatewayRoutesIntegrationTest {
     }
 
     @Test
-    @Order(4)
+    @Order(5)
     void opensCircuitAndUsesFallbackAfterRepeatedBackendFailures() {
         failBackends.set(true);
         try {
@@ -121,6 +146,13 @@ class GatewayRoutesIntegrationTest {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.createContext("/", exchange -> {
+                String receivedTraceparent = exchange.getRequestHeaders().getFirst("traceparent");
+                observedTraceHeaders.set("traceparent=" + receivedTraceparent
+                        + ", b3=" + exchange.getRequestHeaders().getFirst("b3")
+                        + ", X-B3-TraceId=" + exchange.getRequestHeaders().getFirst("X-B3-TraceId"));
+                if (receivedTraceparent != null) {
+                    observedTraceparent.set(receivedTraceparent);
+                }
                 boolean failing = failBackends.get();
                 String body = failing
                         ? "{\"error\":\"backend-unavailable\"}"

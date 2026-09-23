@@ -19,6 +19,7 @@ services:
       - task-service-1
       - task-service-2
       - task-service-3
+      - zipkin
 
   task-service-1:
     build:
@@ -30,6 +31,7 @@ services:
       APP_VERSION: "${APP_VERSION:-1.0.0}"
     depends_on:
       - eureka-server
+      - zipkin
 
   task-service-2:
     build:
@@ -41,6 +43,7 @@ services:
       APP_VERSION: "${APP_VERSION:-1.0.0}"
     depends_on:
       - eureka-server
+      - zipkin
 
   task-service-3:
     build:
@@ -52,6 +55,7 @@ services:
       APP_VERSION: "${APP_VERSION:-1.0.0}"
     depends_on:
       - eureka-server
+      - zipkin
 
   prometheus:
     image: prom/prometheus:latest
@@ -61,6 +65,11 @@ services:
       - ./prometheus/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
     depends_on:
       - gateway
+
+  zipkin:
+    image: openzipkin/zipkin:latest
+    ports:
+      - "9411:9411"
 
   grafana:
     image: grafana/grafana:latest

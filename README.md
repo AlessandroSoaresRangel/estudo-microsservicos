@@ -9,13 +9,18 @@ flowchart LR
     C[Cliente] -->|HTTP :8081| G[Spring Cloud Gateway]
     P[Prometheus :9090] -->|scrape /actuator/prometheus| G
     D[Grafana :3000] -->|consulta Prometheus| P
-    G -->|descoberta e balanceamento| E[Eureka Server :8761]
-    G --> T1[Task Service 1]
-    G --> T2[Task Service 2]
-    G --> T3[Task Service 3]
-    T1 --> E
-    T2 --> E
-    T3 --> E
+    G -->|envia traces| Z[Zipkin :9411]
+    T1 -->|envia traces| Z
+    T2 -->|envia traces| Z
+    T3 -->|envia traces| Z
+    G -.->|consulta registro de serviços| E[Eureka Server :8761]
+    E -.->|lista de instâncias disponíveis| G
+    G -->|requisições HTTP da API| T1[Task Service 1]
+    G -->|requisições HTTP da API| T2[Task Service 2]
+    G -->|requisições HTTP da API| T3[Task Service 3]
+    T1 -.->|registra instância e renova lease| E
+    T2 -.->|registra instância e renova lease| E
+    T3 -.->|registra instância e renova lease| E
 ```
 
 | Componente | Função | Acesso local |
@@ -27,13 +32,16 @@ flowchart LR
 | `task-service-3` | Terceira instância da API de tarefas | Rede interna Docker, porta `8080` |
 | `prometheus` | Coleta métricas do Gateway | `http://localhost:9090` |
 | `grafana` | Dashboards para visualizar métricas do Prometheus | `http://localhost:3000` |
+| `zipkin` | Coleta e visualização de traces distribuídos | `http://localhost:9411` |
+
+As setas pontilhadas mostram o plano de descoberta: as instâncias registram e renovam seus leases no Eureka, e o Gateway obtém dele a lista de instâncias disponíveis. O Eureka não recebe nem encaminha as chamadas de negócio. As setas contínuas mostram o tráfego da API: o Gateway escolhe uma instância e encaminha a requisição HTTP diretamente a ela.
 
 As instâncias Task Service não publicam suas portas no host. O acesso externo às APIs é feito pelo Gateway. No Compose, o Gateway publica a porta `8081` do host e encaminha para a porta `8080` do container.
 
 ## Requisitos
 
 - Docker com Docker Compose plugin
-- Portas `8081`, `8761`, `9090` e `3000` livres no host
+- Portas `8081`, `8761`, `9090`, `3000` e `9411` livres no host
 
 ## Executar
 
@@ -46,7 +54,7 @@ docker compose up --build -d
 Acompanhar os logs:
 
 ```bash
-docker compose logs -f gateway eureka-server task-service-1 task-service-2 task-service-3 prometheus grafana
+docker compose logs -f gateway eureka-server task-service-1 task-service-2 task-service-3 prometheus grafana zipkin
 ```
 
 Verificar os containers:
@@ -123,6 +131,10 @@ As três réplicas do Task Service aparecem no Prometheus no job `task-service`;
 ### Grafana
 
 Abra `http://localhost:3000` e entre com o usuário e a senha padrão `admin`. O Grafana solicitará a troca da senha no primeiro acesso. A fonte Prometheus e o dashboard **TaskFlow - Gateway e Task Service** são provisionados automaticamente; o dashboard mostra memória heap, CPU, taxa de requisições e latência p95 do Gateway e das instâncias do Task Service. Os dados locais do Grafana são mantidos no volume `grafana_data`.
+
+### Tracing distribuído
+
+O Gateway e o Task Service propagam contexto W3C entre chamadas e exportam spans para o Zipkin. Para consultar os traces, abra `http://localhost:9411` e execute uma busca. O ambiente amostra 100% das requisições para facilitar o acompanhamento durante o desenvolvimento.
 
 ### Eureka
 

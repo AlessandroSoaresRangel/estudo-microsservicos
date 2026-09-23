@@ -8,6 +8,10 @@ spring:
     gateway:
       server:
         webflux:
+          observability:
+            enabled: true
+          metrics:
+            enabled: true
           httpclient:
             connect-timeout: 1000
             response-timeout: 3s
@@ -91,6 +95,14 @@ eureka:
     lease-expiration-duration-in-seconds: 15
 
 management:
+  tracing:
+    sampling:
+      probability: 1.0
+    propagation:
+      type: W3C
+  zipkin:
+    tracing:
+      endpoint: http://zipkin:9411/api/v2/spans
   metrics:
     distribution:
       percentiles-histogram:
