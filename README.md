@@ -103,6 +103,13 @@ As credenciais do PostgreSQL ficam em `task-service/.env`. Ajuste `POSTGRES_DB`,
 curl http://localhost:8081/api/v1/tasks
 ```
 
+O endpoint aceita `page` (começando em `0`), `size` e `sort`. Por exemplo, para
+listar a segunda página com 10 tarefas, ordenadas pelo título em ordem crescente:
+
+```bash
+curl 'http://localhost:8081/api/v1/tasks?page=1&size=10&sort=title,asc'
+```
+
 Exemplo de resposta:
 
 ```json
@@ -112,11 +119,37 @@ Exemplo de resposta:
   "tasks": [
     { "id": 1, "title": "Estudar microsserviços" },
     { "id": 2, "title": "Aprender API Gateway" }
-  ]
+  ],
+  "pagination": {
+    "page": 0,
+    "size": 20,
+    "totalElements": 2,
+    "totalPages": 1
+  }
 }
 ```
 
 O número em `instance` identifica qual das três instâncias respondeu. O balanceador escolhe uma instância registrada no Eureka; a sequência pode variar.
+
+O banco começa sem tarefas cadastradas; a lista acima mostra tarefas depois de criadas. A API também permite criar, buscar, atualizar e excluir tarefas pelo Gateway:
+
+```bash
+# Criar
+curl -X POST http://localhost:8081/api/v1/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Preparar release"}'
+
+# Buscar por ID
+curl http://localhost:8081/api/v1/tasks/1
+
+# Atualizar o título
+curl -X PUT http://localhost:8081/api/v1/tasks/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Publicar release"}'
+
+# Excluir
+curl -X DELETE http://localhost:8081/api/v1/tasks/1
+```
 
 ### Health checks do serviço de tarefas
 
