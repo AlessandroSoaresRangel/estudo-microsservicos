@@ -46,7 +46,11 @@ class TaskCrudApiTest {
         mockMvc.perform(post("/tasks")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"ab\"}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("O título deve possuir entre 3 e 100 caracteres."))
+                .andExpect(jsonPath("$.path").value("/tasks"));
     }
 
     @Test
@@ -68,6 +72,16 @@ class TaskCrudApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"" + title + "\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void returnsStructuredNotFoundErrorForMissingTask() throws Exception {
+        mockMvc.perform(get("/tasks/{id}", 999L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Task with id 999 was not found"))
+                .andExpect(jsonPath("$.path").value("/tasks/999"));
     }
 
     @Test
