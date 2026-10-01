@@ -10,17 +10,11 @@ flowchart LR
     P[Prometheus :9090] -->|scrape /actuator/prometheus| G
     D[Grafana :3000] -->|consulta Prometheus| P
     G -->|envia traces| Z[Zipkin :9411]
-    T1 -->|envia traces| Z
-    T2 -->|envia traces| Z
-    T3 -->|envia traces| Z
+    T -->|envia traces| Z
     G -.->|consulta registro de serviços| E[Eureka Server :8761]
     E -.->|lista de instâncias disponíveis| G
-    G -->|requisições HTTP da API| T1[Task Service 1]
-    G -->|requisições HTTP da API| T2[Task Service 2]
-    G -->|requisições HTTP da API| T3[Task Service 3]
-    T1 -.->|registra instância e renova lease| E
-    T2 -.->|registra instância e renova lease| E
-    T3 -.->|registra instância e renova lease| E
+    G -->|requisições HTTP da API| T[Task Service]
+    T -.->|registra instância e renova lease| E
 ```
 
 ### Detalhe do Task Service

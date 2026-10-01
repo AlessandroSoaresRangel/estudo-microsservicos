@@ -1,5 +1,6 @@
 package com.taskflow.task.service;
 
+import com.taskflow.task.dto.TaskResponse;
 import com.taskflow.task.entity.Task;
 import com.taskflow.task.exception.TaskNotFoundException;
 import com.taskflow.task.repository.TaskRepository;
@@ -19,29 +20,33 @@ public class TaskService {
         this.taskRepository = taskRepository;
     }
 
-    public Page<Task> findAll(Pageable pageable) {
-        return taskRepository.findAll(pageable);
+    public Page<TaskResponse> findAll(Pageable pageable) {
+        return taskRepository.findAll(pageable).map(TaskResponse::from);
     }
 
-    public Task findById(Long id) {
-        return taskRepository.findById(id)
-                .orElseThrow(() -> new TaskNotFoundException(id));
-    }
-
-    @Transactional
-    public Task create(String title) {
-        return taskRepository.save(new Task(title));
+    public TaskResponse findById(Long id) {
+        return TaskResponse.from(findTaskById(id));
     }
 
     @Transactional
-    public Task update(Long id, String title) {
-        var task = findById(id);
+    public TaskResponse create(String title) {
+        return TaskResponse.from(taskRepository.save(new Task(title)));
+    }
+
+    @Transactional
+    public TaskResponse update(Long id, String title) {
+        var task = findTaskById(id);
         task.setTitle(title);
-        return taskRepository.save(task);
+        return TaskResponse.from(taskRepository.save(task));
     }
 
     @Transactional
     public void delete(Long id) {
-        taskRepository.delete(findById(id));
+        taskRepository.delete(findTaskById(id));
+    }
+
+    private Task findTaskById(Long id) {
+        return taskRepository.findById(id)
+                .orElseThrow(() -> new TaskNotFoundException(id));
     }
 }

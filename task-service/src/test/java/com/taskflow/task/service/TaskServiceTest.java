@@ -1,5 +1,6 @@
 package com.taskflow.task.service;
 
+import com.taskflow.task.dto.TaskResponse;
 import com.taskflow.task.entity.Task;
 import com.taskflow.task.exception.TaskNotFoundException;
 import com.taskflow.task.repository.TaskRepository;
@@ -31,12 +32,13 @@ class TaskServiceTest {
     @Test
     void findsTasksUsingTheRequestedPageable() {
         var pageable = PageRequest.of(1, 2);
-        var expectedPage = new PageImpl<>(java.util.List.of(new Task("Paginada")), pageable, 3);
-        when(taskRepository.findAll(pageable)).thenReturn(expectedPage);
+        var entityPage = new PageImpl<>(java.util.List.of(new Task("Paginada")), pageable, 3);
+        when(taskRepository.findAll(pageable)).thenReturn(entityPage);
 
         var page = taskService.findAll(pageable);
 
-        assertThat(page).isEqualTo(expectedPage);
+        assertThat(page.getContent()).containsExactly(new TaskResponse(null, "Paginada"));
+        assertThat(page.getTotalElements()).isEqualTo(3);
         verify(taskRepository).findAll(pageable);
     }
 
@@ -46,7 +48,7 @@ class TaskServiceTest {
 
         var createdTask = taskService.create("Escrever testes");
 
-        assertThat(createdTask.getTitle()).isEqualTo("Escrever testes");
+        assertThat(createdTask).isEqualTo(new TaskResponse(null, "Escrever testes"));
         verify(taskRepository).save(any(Task.class));
     }
 
@@ -58,7 +60,7 @@ class TaskServiceTest {
 
         var updatedTask = taskService.update(7L, "Título novo");
 
-        assertThat(updatedTask.getTitle()).isEqualTo("Título novo");
+        assertThat(updatedTask).isEqualTo(new TaskResponse(null, "Título novo"));
         verify(taskRepository).save(existingTask);
     }
 
@@ -70,6 +72,15 @@ class TaskServiceTest {
         taskService.delete(7L);
 
         verify(taskRepository).delete(existingTask);
+    }
+
+    @Test
+    void findsTaskAsResponseDto() {
+        when(taskRepository.findById(7L)).thenReturn(Optional.of(new Task("Encontrada")));
+
+        var taskResponse = taskService.findById(7L);
+
+        assertThat(taskResponse).isEqualTo(new TaskResponse(null, "Encontrada"));
     }
 
     @Test

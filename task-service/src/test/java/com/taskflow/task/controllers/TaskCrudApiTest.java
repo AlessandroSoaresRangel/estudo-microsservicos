@@ -94,12 +94,12 @@ class TaskCrudApiTest {
 
         mockMvc.perform(get("/tasks?page=1&size=1&sort=title,asc"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.tasks.length()").value(1))
-                .andExpect(jsonPath("$.tasks[0].title").value("Bravo"))
-                .andExpect(jsonPath("$.pagination.page").value(1))
-                .andExpect(jsonPath("$.pagination.size").value(1))
-                .andExpect(jsonPath("$.pagination.totalElements").value(3))
-                .andExpect(jsonPath("$.pagination.totalPages").value(3));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("Bravo"))
+                .andExpect(jsonPath("$.number").value(1))
+                .andExpect(jsonPath("$.size").value(1))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(3));
     }
 
     @Test
@@ -125,7 +125,7 @@ class TaskCrudApiTest {
 
         mockMvc.perform(get("/tasks"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.tasks[0].title").value("Tarefa atualizada"));
+                .andExpect(jsonPath("$.content[0].title").value("Tarefa atualizada"));
 
         mockMvc.perform(delete("/tasks/{id}", id))
                 .andExpect(status().isNoContent());
