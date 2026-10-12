@@ -1,10 +1,9 @@
 package com.taskflow.task.repository;
 
+import com.taskflow.task.entity.Task;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-
-import com.taskflow.task.entity.Task;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

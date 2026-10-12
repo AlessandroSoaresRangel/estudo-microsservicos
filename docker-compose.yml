@@ -19,6 +19,7 @@ services:
       - task-service-1
       - task-service-2
       - task-service-3
+      - project-service
       - zipkin
 
   task-db:
@@ -87,6 +88,41 @@ services:
       task-db:
         condition: service_healthy
 
+  project-db:
+    image: postgres:17-alpine
+    env_file:
+      - ./project-service/.env
+    volumes:
+      - project_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  project-service:
+    build:
+      context: ./project-service
+    expose:
+      - "8080"
+    env_file:
+      - ./project-service/.env
+    environment:
+      APP_VERSION: "${APP_VERSION:-1.0.0}"
+    depends_on:
+      eureka-server:
+        condition: service_started
+      task-service-1:
+        condition: service_started
+      task-service-2:
+        condition: service_started
+      task-service-3:
+        condition: service_started
+      zipkin:
+        condition: service_started
+      project-db:
+        condition: service_healthy
+
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -115,3 +151,4 @@ services:
 volumes:
   grafana_data:
   task_db_data:
+  project_db_data:

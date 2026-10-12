@@ -38,6 +38,12 @@ spring:
                     exceptions:
                       - java.io.IOException
                       - java.util.concurrent.TimeoutException
+            - id: projects
+              uri: lb://project-service
+              predicates:
+                - Path=/api/v1/projects,/api/v1/projects/**
+              filters:
+                - StripPrefix=2
             - id: task-health
               uri: lb://task-service
               predicates:

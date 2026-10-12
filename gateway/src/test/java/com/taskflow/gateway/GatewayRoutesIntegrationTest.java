@@ -14,6 +14,9 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 import java.io.IOException;
+import java.time.Duration;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -35,6 +38,8 @@ import java.util.concurrent.atomic.AtomicReference;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class GatewayRoutesIntegrationTest {
 
+    private static final long BACKEND_RESPONSE_DELAY_MILLISECONDS = 4000;
+    private static final ExecutorService backendExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private static final AtomicBoolean failBackends = new AtomicBoolean(false);
     private static final AtomicReference<String> observedTraceparent = new AtomicReference<>();
     private static final AtomicReference<String> observedTraceHeaders = new AtomicReference<>();
@@ -46,6 +51,8 @@ class GatewayRoutesIntegrationTest {
 
     @DynamicPropertySource
     static void backendInstances(DynamicPropertyRegistry registry) {
+        registry.add("spring.cloud.discovery.client.simple.instances.project-service[0].uri",
+                () -> backendUri(backendOne));
         registry.add("spring.cloud.discovery.client.simple.instances.task-service[0].uri",
                 () -> backendUri(backendOne));
         registry.add("spring.cloud.discovery.client.simple.instances.task-service[1].uri",
@@ -58,6 +65,7 @@ class GatewayRoutesIntegrationTest {
     static void stopBackends() {
         backendOne.stop(0);
         backendTwo.stop(0);
+        backendExecutor.shutdownNow();
     }
 
     @Test
@@ -121,6 +129,27 @@ class GatewayRoutesIntegrationTest {
 
     @Test
     @Order(5)
+    void routesProjectsAndPreservesTheResourceIdAndQueryParameters() {
+        webTestClient.get()
+                .uri("/api/v1/projects/42?page=1&size=5")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.path").isEqualTo("/projects/42")
+                .jsonPath("$.query").isEqualTo("page=1&size=5");
+    }
+
+    @Test
+    @Order(6)
+    void timesOutASlowProjectBackend() {
+        webTestClient.mutate().responseTimeout(Duration.ofSeconds(10)).build()
+                .get().uri("/api/v1/projects/slow")
+                .exchange()
+                .expectStatus().isEqualTo(504);
+    }
+
+    @Test
+    @Order(7)
     void opensCircuitAndUsesFallbackAfterRepeatedBackendFailures() {
         failBackends.set(true);
         try {
@@ -145,7 +174,17 @@ class GatewayRoutesIntegrationTest {
     private static HttpServer startBackend(String name) {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            server.setExecutor(backendExecutor);
             server.createContext("/", exchange -> {
+                if (exchange.getRequestURI().getPath().endsWith("/slow")) {
+                    try {
+                        Thread.sleep(BACKEND_RESPONSE_DELAY_MILLISECONDS);
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                        exchange.close();
+                        return;
+                    }
+                }
                 String receivedTraceparent = exchange.getRequestHeaders().getFirst("traceparent");
                 observedTraceHeaders.set("traceparent=" + receivedTraceparent
                         + ", b3=" + exchange.getRequestHeaders().getFirst("b3")
@@ -157,7 +196,8 @@ class GatewayRoutesIntegrationTest {
                 String body = failing
                         ? "{\"error\":\"backend-unavailable\"}"
                         : "{\"instance\":\"" + name + "\",\"path\":\""
-                                + exchange.getRequestURI().getPath() + "\"}";
+                                + exchange.getRequestURI().getPath() + "\",\"query\":\""
+                                + exchange.getRequestURI().getRawQuery() + "\"}";
                 byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().add("Content-Type", "application/json");
                 exchange.sendResponseHeaders(failing ? 503 : 200, bytes.length);

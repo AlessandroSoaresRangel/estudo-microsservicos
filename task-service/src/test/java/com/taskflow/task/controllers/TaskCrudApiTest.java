@@ -25,7 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.username=sa",
         "spring.datasource.password=",
         "spring.datasource.driver-class-name=org.h2.Driver",
-        "spring.jpa.hibernate.ddl-auto=create-drop"
+        "spring.jpa.hibernate.ddl-auto=validate"
 })
 @AutoConfigureMockMvc
 class TaskCrudApiTest {
@@ -39,6 +39,15 @@ class TaskCrudApiTest {
     @BeforeEach
     void clearTasks() {
         taskRepository.deleteAll();
+    }
+
+    @Test
+    void acceptsTasksWithoutDescription() throws Exception {
+        mockMvc.perform(post("/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"Sem descrição\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.title").value("Sem descrição"));
     }
 
     @Test
@@ -106,26 +115,30 @@ class TaskCrudApiTest {
     void supportsCreatingReadingUpdatingAndDeletingTasks() throws Exception {
         var createResponse = mockMvc.perform(post("/tasks")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"title\":\"Primeira tarefa\"}"))
+                        .content("{\"title\":\"Primeira tarefa\",\"description\":\"Detalhes da tarefa\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.title").value("Primeira tarefa"))
+                .andExpect(jsonPath("$.description").value("Detalhes da tarefa"))
                 .andReturn();
         Number idValue = JsonPath.read(createResponse.getResponse().getContentAsString(), "$.id");
         long id = idValue.longValue();
 
         mockMvc.perform(get("/tasks/{id}", id))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(id));
+                .andExpect(jsonPath("$.id").value(id))
+                .andExpect(jsonPath("$.description").value("Detalhes da tarefa"));
 
         mockMvc.perform(put("/tasks/{id}", id)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"title\":\"Tarefa atualizada\"}"))
+                        .content("{\"title\":\"Tarefa atualizada\",\"description\":\"Descrição atualizada\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.title").value("Tarefa atualizada"));
+                .andExpect(jsonPath("$.title").value("Tarefa atualizada"))
+                .andExpect(jsonPath("$.description").value("Descrição atualizada"));
 
         mockMvc.perform(get("/tasks"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].title").value("Tarefa atualizada"));
+                .andExpect(jsonPath("$.content[0].title").value("Tarefa atualizada"))
+                .andExpect(jsonPath("$.content[0].description").value("Descrição atualizada"));
 
         mockMvc.perform(delete("/tasks/{id}", id))
                 .andExpect(status().isNoContent());

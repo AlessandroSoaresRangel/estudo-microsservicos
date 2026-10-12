@@ -21,13 +21,10 @@ logs/
 
 # Local environment and secrets
 .env
-.env.*
-!.env.example
+
 
 # Operating system
 .DS_Store
 Thumbs.db
 
-# Agent instructions
-**/AGENTS.md
-**/agents.md
+

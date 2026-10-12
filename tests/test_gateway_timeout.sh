@@ -1,6 +1,5 @@
 #!/bin/sh
 set -eu
 
-config="$(dirname "$0")/../gateway/src/main/resources/application.yml"
-grep -Eq 'connect-timeout: 1000' "$config"
-grep -Eq 'response-timeout: 3s' "$config"
+exec sh "$(dirname "$0")/run_gateway_tests.sh" \
+    'GatewayRoutesIntegrationTest#timesOutASlowProjectBackend'
