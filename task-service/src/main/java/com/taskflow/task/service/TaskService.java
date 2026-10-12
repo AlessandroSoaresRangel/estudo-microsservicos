@@ -29,14 +29,15 @@ public class TaskService {
     }
 
     @Transactional
-    public TaskResponse create(String title) {
-        return TaskResponse.from(taskRepository.save(new Task(title)));
+    public TaskResponse create(String title, String description) {
+        return TaskResponse.from(taskRepository.save(new Task(title, description)));
     }
 
     @Transactional
-    public TaskResponse update(Long id, String title) {
+    public TaskResponse update(Long id, String title, String description) {
         var task = findTaskById(id);
         task.setTitle(title);
+        task.setDescription(description);
         return TaskResponse.from(taskRepository.save(task));
     }
 

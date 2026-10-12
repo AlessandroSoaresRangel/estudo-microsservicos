@@ -10,7 +10,7 @@ class TaskRequestValidationTest {
     @Test
     void reportsThatTitleIsRequiredWhenItIsMissing() {
         try (var factory = Validation.buildDefaultValidatorFactory()) {
-            var violations = factory.getValidator().validate(new TaskRequest(null));
+            var violations = factory.getValidator().validate(new TaskRequest(null, null));
 
             assertThat(violations)
                     .extracting("message")
@@ -21,7 +21,7 @@ class TaskRequestValidationTest {
     @Test
     void reportsTheAllowedTitleLength() {
         try (var factory = Validation.buildDefaultValidatorFactory()) {
-            var violations = factory.getValidator().validate(new TaskRequest("ab"));
+            var violations = factory.getValidator().validate(new TaskRequest("ab", null));
 
             assertThat(violations)
                     .extracting("message")

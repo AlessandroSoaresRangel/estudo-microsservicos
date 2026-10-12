@@ -1,18 +1,18 @@
 package com.taskflow.task.service;
 
+import java.util.Optional;
+
 import com.taskflow.task.dto.TaskResponse;
 import com.taskflow.task.entity.Task;
 import com.taskflow.task.exception.TaskNotFoundException;
 import com.taskflow.task.repository.TaskRepository;
 import org.junit.jupiter.api.Test;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import java.util.Optional;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,7 +37,7 @@ class TaskServiceTest {
 
         var page = taskService.findAll(pageable);
 
-        assertThat(page.getContent()).containsExactly(new TaskResponse(null, "Paginada"));
+        assertThat(page.getContent()).containsExactly(new TaskResponse(null, "Paginada", null));
         assertThat(page.getTotalElements()).isEqualTo(3);
         verify(taskRepository).findAll(pageable);
     }
@@ -46,9 +46,9 @@ class TaskServiceTest {
     void createsTask() {
         when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        var createdTask = taskService.create("Escrever testes");
+        var createdTask = taskService.create("Escrever testes", null);
 
-        assertThat(createdTask).isEqualTo(new TaskResponse(null, "Escrever testes"));
+        assertThat(createdTask).isEqualTo(new TaskResponse(null, "Escrever testes", null));
         verify(taskRepository).save(any(Task.class));
     }
 
@@ -58,9 +58,9 @@ class TaskServiceTest {
         when(taskRepository.findById(7L)).thenReturn(Optional.of(existingTask));
         when(taskRepository.save(existingTask)).thenReturn(existingTask);
 
-        var updatedTask = taskService.update(7L, "Título novo");
+        var updatedTask = taskService.update(7L, "Título novo", null);
 
-        assertThat(updatedTask).isEqualTo(new TaskResponse(null, "Título novo"));
+        assertThat(updatedTask).isEqualTo(new TaskResponse(null, "Título novo", null));
         verify(taskRepository).save(existingTask);
     }
 
@@ -80,14 +80,14 @@ class TaskServiceTest {
 
         var taskResponse = taskService.findById(7L);
 
-        assertThat(taskResponse).isEqualTo(new TaskResponse(null, "Encontrada"));
+        assertThat(taskResponse).isEqualTo(new TaskResponse(null, "Encontrada", null));
     }
 
     @Test
     void reportsNotFoundWhenUpdatingMissingTask() {
         when(taskRepository.findById(99L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> taskService.update(99L, "Título"))
+        assertThatThrownBy(() -> taskService.update(99L, "Título", null))
                 .isInstanceOf(TaskNotFoundException.class)
                 .hasMessageContaining("99");
     }

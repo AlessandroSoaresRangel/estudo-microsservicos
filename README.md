@@ -15,6 +15,10 @@ flowchart LR
     E -.->|lista de instâncias disponíveis| G
     G -->|requisições HTTP da API| T[Task Service]
     T -.->|registra instância e renova lease| E
+    G -->|API de projetos| PR[Project Service]
+    PR -.->|descoberta| E
+    PR -->|valida IDs de tarefas| T
+    PR --> PDB[(Project DB)]
 ```
 
 ### Detalhe do Task Service
@@ -47,6 +51,42 @@ As três instâncias compartilham o banco `task-db`. O PostgreSQL persiste os da
 As setas pontilhadas mostram o plano de descoberta: as instâncias registram e renovam seus leases no Eureka, e o Gateway obtém dele a lista de instâncias disponíveis. O Eureka não recebe nem encaminha as chamadas de negócio. As setas contínuas mostram o tráfego da API: o Gateway escolhe uma instância e encaminha a requisição HTTP diretamente a ela.
 
 As instâncias Task Service não publicam suas portas no host. O acesso externo às APIs é feito pelo Gateway. No Compose, o Gateway publica a porta `8081` do host e encaminha para a porta `8080` do container.
+
+## Serviço de projetos
+
+O `project-service` possui banco PostgreSQL próprio (`project-db`) e registra-se no
+Eureka. O gateway expõe seu CRUD em `/api/v1/projects`:
+
+- `POST /api/v1/projects`: cria um projeto com uma ou mais tarefas existentes.
+- `GET /api/v1/projects`: lista projetos com paginação (`page`, `size`, `sort`).
+- `GET /api/v1/projects/{id}`: consulta um projeto e seus `taskIds`.
+- `PUT /api/v1/projects/{id}`: substitui nome, descrição e vínculos.
+- `DELETE /api/v1/projects/{id}`: exclui o projeto e seus vínculos, mantendo as tarefas.
+
+Crie as tarefas primeiro e use os IDs retornados:
+
+```json
+{
+  "name": "Estudo de microsserviços",
+  "description": "Implementar os serviços do TaskFlow",
+  "taskIds": [1, 2]
+}
+```
+
+`name` é obrigatório, com até 100 caracteres; `description` é opcional.
+`taskIds` exige ao menos um ID positivo, sem repetições. Cada tarefa pode pertencer
+a apenas um projeto. Tarefas podem existir sem projeto, preservando o CRUD atual.
+IDs inexistentes retornam `422`, vínculos já utilizados retornam `409` e falhas de
+comunicação com o serviço de tarefas retornam `503`, sem salvar o projeto.
+
+Os vínculos são IDs remotos; não há chave estrangeira entre os bancos nem
+transação distribuída. A existência da tarefa é validada ao criar/atualizar o
+projeto. Excluir uma tarefa diretamente no `task-service` não remove seu vínculo:
+antes disso, substitua os vínculos do projeto ou exclua o projeto.
+
+Copie `project-service/.env.example` para `project-service/.env` e ajuste as
+credenciais locais antes de executar o Compose. O Flyway cria `projects` e
+`project_tasks`; a exclusividade do vínculo também é garantida pelo banco.
 
 ## Requisitos
 
@@ -90,6 +130,20 @@ O valor padrão é `1.0.0`.
 As credenciais do PostgreSQL ficam em `task-service/.env`. Ajuste `POSTGRES_DB`, `POSTGRES_USER` e `POSTGRES_PASSWORD` nesse arquivo antes de subir o ambiente. O modelo versionado está em `task-service/.env.example`; o arquivo com as credenciais locais é ignorado pelo Git.
 
 ## Endpoints
+
+As tarefas aceitam `title` e uma descrição opcional em `description`. A descrição é
+armazenada como texto e retornada na criação, consulta, listagem e atualização.
+Tarefas antigas continuam válidas, com `description` igual a `null`. No `PUT`,
+omitir a descrição ou enviar `null` limpa esse campo.
+
+Exemplo de corpo para criar ou atualizar uma tarefa:
+
+```json
+{
+  "title": "Estudar Flyway",
+  "description": "Praticar migrações versionadas no PostgreSQL."
+}
+```
 
 ### Listar tarefas
 
@@ -215,10 +269,21 @@ Os módulos Java têm testes Maven. Para executá-los, entre no diretório de ca
 ```bash
 (cd gateway && mvn test)
 (cd task-service && mvn test)
+(cd project-service && mvn test)
 (cd eureka-server && mvn test)
 ```
 
-Há também verificações de configuração em `tests/`, por exemplo:
+Os scripts do gateway em `tests/` executam testes HTTP de integração: rotas de
+tarefas e projetos, reescrita de caminhos, retry, circuit breaker e timeout real.
+Usam Maven quando disponível; caso contrário, executam Maven com Java 21 no
+Docker. Os servidores de teste são locais e não precisam do Compose em execução.
+
+```bash
+sh tests/test_gateway_config.sh
+```
+
+Também há um teste isolado de timeout e verificações de configuração de outros
+componentes:
 
 ```bash
 sh tests/test_gateway_timeout.sh
@@ -237,5 +302,6 @@ sh tests/test_prometheus_config.sh
 ├── eureka-server/     # servidor Eureka
 ├── gateway/           # Spring Cloud Gateway e Resilience4j
 ├── task-service/      # API Spring Boot replicada em três containers
-└── tests/             # verificações de configuração
+├── project-service/   # API de projetos e vínculos com tarefas
+└── tests/             # testes de integração e verificações de configuração
 ```
