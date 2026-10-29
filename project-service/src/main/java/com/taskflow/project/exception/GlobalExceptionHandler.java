@@ -21,7 +21,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> handleValidation(HttpServletRequest request) {
-        return error(HttpStatus.BAD_REQUEST, "Informe um nome válido e pelo menos uma tarefa com ID positivo.", request);
+        return error(HttpStatus.BAD_REQUEST, "Informe um nome válido e, se presentes, IDs de tarefas positivos.", request);
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

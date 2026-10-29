@@ -43,15 +43,33 @@ public class ProjectService {
 
     @Transactional
     public ProjectResponse update(Long id, ProjectRequest request) {
-        Project project = requireProject(id);
-        Set<Long> taskIds = validateTaskLinks(request, id);
+        Project project = requireLockedProject(id);
+        Set<Long> taskIds = request.taskIds() == null
+                ? project.getTaskIds() : new LinkedHashSet<>(request.taskIds());
+        if (!taskIds.containsAll(project.getTaskIds())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Exclua as tarefas antes de remover seus vínculos com o projeto.");
+        }
+        if (request.taskIds() != null) {
+            taskIds = validateTaskLinks(request, id);
+        }
         project.update(request.name(), request.description(), taskIds);
         return ProjectResponse.from(projectRepository.saveAndFlush(project));
     }
 
     @Transactional
     public void delete(Long id) {
-        projectRepository.delete(requireProject(id));
+        Project project = requireLockedProject(id);
+        if (!project.getTaskIds().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Projetos com tarefas não podem ser excluídos.");
+        }
+        projectRepository.delete(project);
+    }
+
+    private Project requireLockedProject(Long id) {
+        return projectRepository.findLockedById(id).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "Projeto " + id + " não encontrado."));
     }
 
     private Project requireProject(Long id) {
@@ -65,6 +83,9 @@ public class ProjectService {
      * A existência remota é verificada neste instante, sem transação distribuída.
      */
     private Set<Long> validateTaskLinks(ProjectRequest request, Long projectId) {
+        if (request.taskIds() == null || request.taskIds().isEmpty()) {
+            return Set.of();
+        }
         Set<Long> taskIds = new LinkedHashSet<>(request.taskIds());
         if (taskIds.size() != request.taskIds().size()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "IDs de tarefas repetidos.");

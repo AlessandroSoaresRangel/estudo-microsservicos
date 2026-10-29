@@ -2,6 +2,8 @@ package com.taskflow.task.service;
 
 import java.util.Optional;
 
+import com.taskflow.task.client.ProjectCatalog;
+import com.taskflow.task.repository.PendingTaskUnlinkRepository;
 import com.taskflow.task.dto.TaskResponse;
 import com.taskflow.task.entity.Task;
 import com.taskflow.task.exception.TaskNotFoundException;
@@ -26,8 +28,24 @@ class TaskServiceTest {
     @Mock
     private TaskRepository taskRepository;
 
+    @Mock
+    private ProjectCatalog projectCatalog;
+
+    @Mock
+    private PendingTaskUnlinkRepository pendingUnlinks;
+
+    @Mock
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
+
     @InjectMocks
     private TaskService taskService;
+
+    @Test
+    void requiresAProjectBeforePersistingATask() {
+        assertThatThrownBy(() -> taskService.create("Tarefa sem projeto", null, null))
+                .isInstanceOf(com.taskflow.task.exception.ProjectRequiredException.class);
+        org.mockito.Mockito.verifyNoInteractions(taskRepository, projectCatalog);
+    }
 
     @Test
     void findsTasksUsingTheRequestedPageable() {
@@ -46,7 +64,7 @@ class TaskServiceTest {
     void createsTask() {
         when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        var createdTask = taskService.create("Escrever testes", null);
+        var createdTask = taskService.create("Escrever testes", null, 1L);
 
         assertThat(createdTask).isEqualTo(new TaskResponse(null, "Escrever testes", null));
         verify(taskRepository).save(any(Task.class));
@@ -58,7 +76,7 @@ class TaskServiceTest {
         when(taskRepository.findById(7L)).thenReturn(Optional.of(existingTask));
         when(taskRepository.save(existingTask)).thenReturn(existingTask);
 
-        var updatedTask = taskService.update(7L, "Título novo", null);
+        var updatedTask = taskService.update(7L, "Título novo", null, 1L);
 
         assertThat(updatedTask).isEqualTo(new TaskResponse(null, "Título novo", null));
         verify(taskRepository).save(existingTask);
@@ -87,7 +105,7 @@ class TaskServiceTest {
     void reportsNotFoundWhenUpdatingMissingTask() {
         when(taskRepository.findById(99L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> taskService.update(99L, "Título", null))
+        assertThatThrownBy(() -> taskService.update(99L, "Título", null, 1L))
                 .isInstanceOf(TaskNotFoundException.class)
                 .hasMessageContaining("99");
     }

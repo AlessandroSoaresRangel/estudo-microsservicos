@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
+import org.springframework.context.ApplicationContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.server.ResponseStatusException;
@@ -29,13 +30,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "spring.datasource.password=",
         "spring.datasource.driver-class-name=org.h2.Driver"
 })
-class HttpTaskCatalogTimeoutTest {
+class HttpTaskCatalogIntegrationTest {
     private static final long BACKEND_RESPONSE_DELAY_MILLISECONDS = 4000;
     private static final ExecutorService backendExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private static final HttpServer backend = startBackend();
 
     @Autowired
     private TaskCatalog taskCatalog;
+
+    @Autowired
+    private ApplicationContext applicationContext;
+
+    @Test
+    void registersTheTaskServiceFeignClient() {
+        assertThat(applicationContext.containsBean(
+                "com.taskflow.project.client.TaskServiceClient")).isTrue();
+    }
 
     @DynamicPropertySource
     static void backendInstance(DynamicPropertyRegistry registry) {
@@ -58,6 +68,27 @@ class HttpTaskCatalogTimeoutTest {
                 .hasRootCauseInstanceOf(SocketTimeoutException.class);
     }
 
+    @Test
+    void acceptsAnExistingTask() {
+        taskCatalog.requireExistingTask(1L);
+    }
+
+    @Test
+    void translatesAMissingTaskToAnInvalidLink() {
+        assertThatThrownBy(() -> taskCatalog.requireExistingTask(2L))
+                .isInstanceOfSatisfying(ResponseStatusException.class, exception -> {
+                    assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+                    assertThat(exception.getReason()).isEqualTo("Tarefa 2 não encontrada.");
+                });
+    }
+
+    @Test
+    void translatesTaskServiceFailureToServiceUnavailable() {
+        assertThatThrownBy(() -> taskCatalog.requireExistingTask(3L))
+                .isInstanceOfSatisfying(ResponseStatusException.class, exception ->
+                        assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+    }
+
     private static HttpServer startBackend() {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -68,6 +99,22 @@ class HttpTaskCatalogTimeoutTest {
                     exchange.sendResponseHeaders(200, -1);
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
+                } finally {
+                    exchange.close();
+                }
+            });
+            server.createContext("/tasks/", exchange -> {
+                try {
+                    if (!exchange.getRequestMethod().equals("GET")) {
+                        exchange.sendResponseHeaders(405, -1);
+                        return;
+                    }
+                    int status = switch (exchange.getRequestURI().getPath()) {
+                        case "/tasks/1" -> 200;
+                        case "/tasks/2" -> 404;
+                        default -> 500;
+                    };
+                    exchange.sendResponseHeaders(status, -1);
                 } finally {
                     exchange.close();
                 }

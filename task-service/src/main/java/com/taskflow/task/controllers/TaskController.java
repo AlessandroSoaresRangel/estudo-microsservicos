@@ -37,14 +37,14 @@ public class TaskController {
         return ResponseEntity.ok(taskService.findById(id));
     }
 
-    @PostMapping
+    @PostMapping({"", "/"})
     public ResponseEntity<TaskResponse> createTask(@Valid @RequestBody TaskRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(taskService.create(request.title(), request.description()));
+        return ResponseEntity.status(HttpStatus.CREATED).body(taskService.create(request.title(), request.description(), request.projectId()));
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<TaskResponse> updateTask(@PathVariable Long id, @Valid @RequestBody TaskRequest request) {
-        return ResponseEntity.ok(taskService.update(id, request.title(), request.description()));
+        return ResponseEntity.ok(taskService.update(id, request.title(), request.description(), request.projectId()));
     }
 
     @DeleteMapping("/{id}")

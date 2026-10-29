@@ -17,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import org.springframework.jdbc.core.JdbcTemplate;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -43,9 +44,63 @@ class ProjectApiTest {
     @Autowired
     private ProjectRepository projectRepository;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @BeforeEach
     void clearProjects() {
-        projectRepository.deleteAll();
+        jdbcTemplate.update("DELETE FROM project_tasks");
+        jdbcTemplate.update("DELETE FROM projects");
+    }
+
+    @Test
+    void doesNotExposeTheRemovedOrphanImportEndpoint() throws Exception {
+        mockMvc.perform(post("/internal/project-task-links/import")
+                        .contentType(MediaType.APPLICATION_JSON).content("[]"))
+                .andExpect(status().isMethodNotAllowed());
+    }
+
+    @Test
+    void assignsATaskIdempotentlyAndRejectsAnotherOwner() throws Exception {
+        String firstResponse = mockMvc.perform(post("/projects").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Primeiro projeto\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        Number firstId = JsonPath.read(firstResponse, "$.id");
+        String secondResponse = mockMvc.perform(post("/projects").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Segundo projeto\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        Number secondId = JsonPath.read(secondResponse, "$.id");
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mockMvc.perform(post("/internal/project-task-links/{projectId}/905", firstId))
+                    .andExpect(status().isNoContent());
+        }
+        mockMvc.perform(post("/internal/project-task-links/{projectId}/905", secondId))
+                .andExpect(status().isConflict());
+        mockMvc.perform(put("/projects/{id}", firstId).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Nome atualizado\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.taskIds[0]").value(905));
+        mockMvc.perform(delete("/projects/{id}", firstId)).andExpect(status().isConflict());
+    }
+
+    @Test
+    void rejectsRemovingTaskLinksWhileUpdatingAProject() throws Exception {
+        String response = mockMvc.perform(post("/projects").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Projeto protegido\",\"taskIds\":[902]}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        Number projectId = JsonPath.read(response, "$.id");
+        mockMvc.perform(put("/projects/{id}", projectId).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Projeto protegido\",\"taskIds\":[]}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void preventsDeletingAProjectThatStillOwnsTasks() throws Exception {
+        String response = mockMvc.perform(post("/projects").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Projeto protegido\",\"taskIds\":[901]}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        Number projectId = JsonPath.read(response, "$.id");
+        mockMvc.perform(delete("/projects/{id}", projectId)).andExpect(status().isConflict());
+        assertThat(projectRepository.existsById(projectId.longValue())).isTrue();
     }
 
     @Test
@@ -66,16 +121,21 @@ class ProjectApiTest {
         mockMvc.perform(get("/projects/{id}", projectId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.description").value("Detalhes"));
-        mockMvc.perform(get("/projects"))
+        mockMvc.perform(get("/projects?sort=id,desc"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].taskIds.length()").value(2));
         mockMvc.perform(put("/projects/{id}", projectId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"name":"Projeto atualizado","taskIds":[103]}
+                                {"name":"Projeto atualizado","taskIds":[101,102,103]}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.taskIds[0]").value(103));
+                .andExpect(jsonPath("$.taskIds[2]").value(103));
+        mockMvc.perform(delete("/projects/{id}", projectId)).andExpect(status().isConflict());
+        for (long taskId : new long[] {101, 102, 103}) {
+            mockMvc.perform(delete("/internal/project-task-links/{taskId}", taskId))
+                    .andExpect(status().isNoContent());
+        }
         mockMvc.perform(delete("/projects/{id}", projectId)).andExpect(status().isNoContent());
         mockMvc.perform(get("/projects/{id}", projectId)).andExpect(status().isNotFound());
     }
@@ -138,7 +198,7 @@ class ProjectApiTest {
                 .when(taskCatalog).requireExistingTask(999L);
 
         mockMvc.perform(put("/projects/{id}", projectId).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Projeto modificado\",\"taskIds\":[999]}"))
+                        .content("{\"name\":\"Projeto modificado\",\"taskIds\":[501,999]}"))
                 .andExpect(status().isUnprocessableEntity());
         mockMvc.perform(get("/projects/{id}", projectId))
                 .andExpect(status().isOk())
@@ -148,12 +208,12 @@ class ProjectApiTest {
     }
 
     @Test
-    void requiresAtLeastOneTask() throws Exception {
+    void allowsCreatingAProjectBeforeItsTasks() throws Exception {
         mockMvc.perform(post("/projects").contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name":"Projeto vazio","taskIds":[]}
                                 """))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isCreated());
     }
 
     @Test

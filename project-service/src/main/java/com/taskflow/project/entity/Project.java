@@ -47,6 +47,14 @@ public class Project {
         this.taskIds.addAll(taskIds);
     }
 
+    public void addTask(Long taskId) {
+        taskIds.add(taskId);
+    }
+
+    public void removeTask(Long taskId) {
+        taskIds.remove(taskId);
+    }
+
     public Long getId() {
         return id;
     }

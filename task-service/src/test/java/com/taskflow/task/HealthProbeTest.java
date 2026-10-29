@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "eureka.client.enabled=false",
+                "taskflow.task-link-cleanup.enabled=false",
         "management.zipkin.tracing.export.enabled=false",
         "spring.datasource.url=jdbc:h2:mem:health-probe-test",
         "spring.datasource.username=sa",

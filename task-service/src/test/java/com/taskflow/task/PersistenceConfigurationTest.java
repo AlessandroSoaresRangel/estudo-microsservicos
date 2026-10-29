@@ -16,6 +16,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest(
         properties = {
                 "eureka.client.enabled=false",
+                "taskflow.task-link-cleanup.enabled=false",
                 "management.zipkin.tracing.export.enabled=false",
                 "spring.datasource.url=jdbc:h2:mem:task-service-test",
                 "spring.datasource.username=sa",

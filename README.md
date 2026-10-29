@@ -17,7 +17,7 @@ flowchart LR
     T -.->|registra instância e renova lease| E
     G -->|API de projetos| PR[Project Service]
     PR -.->|descoberta| E
-    PR -->|valida IDs de tarefas| T
+    PR -->|OpenFeign: valida IDs de tarefas| T
     PR --> PDB[(Project DB)]
 ```
 
@@ -52,41 +52,78 @@ As setas pontilhadas mostram o plano de descoberta: as instâncias registram e r
 
 As instâncias Task Service não publicam suas portas no host. O acesso externo às APIs é feito pelo Gateway. No Compose, o Gateway publica a porta `8081` do host e encaminha para a porta `8080` do container.
 
-## Serviço de projetos
+## Projetos e tarefas
 
-O `project-service` possui banco PostgreSQL próprio (`project-db`) e registra-se no
-Eureka. O gateway expõe seu CRUD em `/api/v1/projects`:
-
-- `POST /api/v1/projects`: cria um projeto com uma ou mais tarefas existentes.
-- `GET /api/v1/projects`: lista projetos com paginação (`page`, `size`, `sort`).
-- `GET /api/v1/projects/{id}`: consulta um projeto e seus `taskIds`.
-- `PUT /api/v1/projects/{id}`: substitui nome, descrição e vínculos.
-- `DELETE /api/v1/projects/{id}`: exclui o projeto e seus vínculos, mantendo as tarefas.
-
-Crie as tarefas primeiro e use os IDs retornados:
+Toda tarefa deve pertencer a exatamente um projeto. Crie primeiro o projeto
+(`POST /api/v1/projects`); ele pode começar sem tarefas:
 
 ```json
 {
   "name": "Estudo de microsserviços",
-  "description": "Implementar os serviços do TaskFlow",
-  "taskIds": [1, 2]
+  "description": "Implementar os serviços do TaskFlow"
 }
 ```
 
-`name` é obrigatório, com até 100 caracteres; `description` é opcional.
-`taskIds` exige ao menos um ID positivo, sem repetições. Cada tarefa pode pertencer
-a apenas um projeto. Tarefas podem existir sem projeto, preservando o CRUD atual.
-IDs inexistentes retornam `422`, vínculos já utilizados retornam `409` e falhas de
-comunicação com o serviço de tarefas retornam `503`, sem salvar o projeto.
+Use o ID retornado como `projectId` ao criar ou atualizar uma tarefa:
 
-Os vínculos são IDs remotos; não há chave estrangeira entre os bancos nem
-transação distribuída. A existência da tarefa é validada ao criar/atualizar o
-projeto. Excluir uma tarefa diretamente no `task-service` não remove seu vínculo:
-antes disso, substitua os vínculos do projeto ou exclua o projeto.
+```json
+{
+  "title": "Estudar Flyway",
+  "description": "Praticar migrações versionadas no PostgreSQL.",
+  "projectId": 1
+}
+```
+
+`projectId` é obrigatório e positivo. O `task-service` registra o vínculo via
+Spring Cloud OpenFeign antes de confirmar a criação local. Projeto inexistente
+retorna `422`; falha de comunicação retorna `503` e reverte a criação da tarefa.
+A atualização exige o projeto atual; tentar atribuir a tarefa a outro projeto
+retorna `409`. A resposta da tarefa mantém `id`, `title` e `description`;
+os vínculos são consultados em `taskIds` na resposta do projeto.
+
+O `project-service` possui banco PostgreSQL próprio (`project-db`), registra-se
+no Eureka e expõe pelo Gateway:
+
+- `POST /api/v1/projects`: cria um projeto, com `taskIds` opcional.
+- `GET /api/v1/projects`: lista com paginação (`page`, `size`, `sort`).
+- `GET /api/v1/projects/{id}`: consulta um projeto e seus `taskIds`.
+- `PUT /api/v1/projects/{id}`: atualiza nome e descrição; omitir `taskIds` preserva os vínculos.
+- `DELETE /api/v1/projects/{id}`: exclui apenas projetos sem tarefas (`409` se houver vínculos).
+
+`name` é obrigatório, com até 100 caracteres; `description` é opcional.
+Quando informado, `taskIds` aceita uma lista vazia ou IDs positivos, sem
+repetições. A API de projetos mantém a validação de existência e exclusividade
+dos IDs, mas não permite remover vínculos pela atualização do projeto.
+
+Para remover uma tarefa, use `DELETE /api/v1/tasks/{id}`. A exclusão e a entrada
+na fila `pending_task_unlinks` são confirmadas na mesma transação local. Um
+consumidor remove o vínculo remoto a cada 5 segundos, repetindo a operação se o
+serviço de projetos estiver indisponível. Até a limpeza, a exclusão do projeto
+continua retornando `409`. Criações revertidas também enfileiram a limpeza de
+possíveis vínculos remotos.
+
+Os vínculos continuam em `project_tasks`, com exclusividade garantida pelo banco.
+Não há chave estrangeira entre os bancos nem transação distribuída. O vínculo
+é confirmado antes da tarefa ficar visível; sua remoção ocorre depois da exclusão
+local. Os endpoints de coordenação em `/internal/project-task-links` ficam na
+rede interna e não possuem rota no Gateway. Não devem ser publicados externamente.
+Uma interrupção do processo entre a chamada remota e a compensação pode deixar
+um vínculo sem tarefa; nesse caso é necessária uma limpeza administrativa do
+vínculo, após confirmar que a tarefa não existe.
+
+A importação automática de tarefas órfãs foi removida. A inicialização não
+percorre tarefas nem aguarda uma etapa de importação. O antigo projeto de
+importação permanece como projeto comum, preservando os dados já existentes.
+A migração histórica `V2` é mantida para compatibilidade com o Flyway; a `V3`
+remove a marca de sistema usada exclusivamente pela importação.
+
+Os dois serviços usam OpenFeign, Eureka e Spring Cloud LoadBalancer. Os limites
+de conexão (1000 ms) e leitura (2000 ms) ficam em
+`spring.cloud.openfeign.client.config.<nome-do-serviço>` nos respectivos
+`application.properties`. O módulo `feign-micrometer` instrumenta as chamadas.
 
 Copie `project-service/.env.example` para `project-service/.env` e ajuste as
-credenciais locais antes de executar o Compose. O Flyway cria `projects` e
-`project_tasks`; a exclusividade do vínculo também é garantida pelo banco.
+credenciais locais antes de executar o Compose.
 
 ## Requisitos
 
@@ -141,7 +178,8 @@ Exemplo de corpo para criar ou atualizar uma tarefa:
 ```json
 {
   "title": "Estudar Flyway",
-  "description": "Praticar migrações versionadas no PostgreSQL."
+  "description": "Praticar migrações versionadas no PostgreSQL.",
+  "projectId": 1
 }
 ```
 
@@ -182,10 +220,10 @@ O número em `instance` identifica qual das três instâncias respondeu. O balan
 O banco começa sem tarefas cadastradas; a lista acima mostra tarefas depois de criadas. A API também permite criar, buscar, atualizar e excluir tarefas pelo Gateway:
 
 ```bash
-# Criar
+# Criar (use o ID de um projeto existente)
 curl -X POST http://localhost:8081/api/v1/tasks \
   -H 'Content-Type: application/json' \
-  -d '{"title":"Preparar release"}'
+  -d '{"title":"Preparar release","projectId":1}'
 
 # Buscar por ID
 curl http://localhost:8081/api/v1/tasks/1
@@ -193,7 +231,7 @@ curl http://localhost:8081/api/v1/tasks/1
 # Atualizar o título
 curl -X PUT http://localhost:8081/api/v1/tasks/1 \
   -H 'Content-Type: application/json' \
-  -d '{"title":"Publicar release"}'
+  -d '{"title":"Publicar release","projectId":1}'
 
 # Excluir
 curl -X DELETE http://localhost:8081/api/v1/tasks/1
