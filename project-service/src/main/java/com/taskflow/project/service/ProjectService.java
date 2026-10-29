@@ -4,6 +4,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 import com.taskflow.project.client.TaskCatalog;
+import com.taskflow.project.messaging.ProjectLifecycleEvents;
 import com.taskflow.project.dto.ProjectRequest;
 import com.taskflow.project.dto.ProjectResponse;
 import com.taskflow.project.entity.Project;
@@ -20,10 +21,13 @@ import org.springframework.web.server.ResponseStatusException;
 public class ProjectService {
     private final ProjectRepository projectRepository;
     private final TaskCatalog taskCatalog;
+    private final ProjectLifecycleEvents lifecycleEvents;
 
-    public ProjectService(ProjectRepository projectRepository, TaskCatalog taskCatalog) {
+    public ProjectService(ProjectRepository projectRepository, TaskCatalog taskCatalog,
+                          ProjectLifecycleEvents lifecycleEvents) {
         this.projectRepository = projectRepository;
         this.taskCatalog = taskCatalog;
+        this.lifecycleEvents = lifecycleEvents;
     }
 
     public Page<ProjectResponse> findAll(Pageable pageable) {
@@ -38,7 +42,9 @@ public class ProjectService {
     public ProjectResponse create(ProjectRequest request) {
         Set<Long> taskIds = validateTaskLinks(request, null);
         Project project = new Project(request.name(), request.description(), taskIds);
-        return ProjectResponse.from(projectRepository.saveAndFlush(project));
+        Project savedProject = projectRepository.saveAndFlush(project);
+        lifecycleEvents.created(savedProject);
+        return ProjectResponse.from(savedProject);
     }
 
     @Transactional
@@ -54,7 +60,9 @@ public class ProjectService {
             taskIds = validateTaskLinks(request, id);
         }
         project.update(request.name(), request.description(), taskIds);
-        return ProjectResponse.from(projectRepository.saveAndFlush(project));
+        Project savedProject = projectRepository.saveAndFlush(project);
+        lifecycleEvents.updated(savedProject);
+        return ProjectResponse.from(savedProject);
     }
 
     @Transactional
@@ -64,6 +72,7 @@ public class ProjectService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Projetos com tarefas não podem ser excluídos.");
         }
+        lifecycleEvents.deleted(project);
         projectRepository.delete(project);
     }
 

@@ -3,6 +3,7 @@ package com.taskflow.project;
 import com.jayway.jsonpath.JsonPath;
 import com.taskflow.project.client.TaskCatalog;
 import com.taskflow.project.repository.ProjectRepository;
+import com.taskflow.project.repository.LifecycleOutboxRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +28,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties = {
         "eureka.client.enabled=false",
+        "taskflow.lifecycle-events.publisher-enabled=false",
+        "spring.rabbitmq.listener.simple.auto-startup=false",
+        "spring.rabbitmq.dynamic=false",
         "management.tracing.enabled=false",
         "spring.datasource.url=jdbc:h2:mem:project-api;DB_CLOSE_DELAY=-1",
         "spring.datasource.username=sa",
@@ -45,12 +49,31 @@ class ProjectApiTest {
     private ProjectRepository projectRepository;
 
     @Autowired
+    private LifecycleOutboxRepository lifecycleOutbox;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void clearProjects() {
+        lifecycleOutbox.deleteAll();
         jdbcTemplate.update("DELETE FROM project_tasks");
         jdbcTemplate.update("DELETE FROM projects");
+    }
+
+    @Test
+    void recordsProjectCreationUpdateAndDeletionInTheOutbox() throws Exception {
+        String response = mockMvc.perform(post("/projects").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Projeto com eventos\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        Number projectId = JsonPath.read(response, "$.id");
+        mockMvc.perform(put("/projects/{id}", projectId).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Projeto atualizado\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(delete("/projects/{id}", projectId)).andExpect(status().isNoContent());
+        assertThat(lifecycleOutbox.findAll(org.springframework.data.domain.Sort.by("id")))
+                .extracting(com.taskflow.project.entity.LifecycleOutboxEvent::getEventType)
+                .containsExactly("project.created.v1", "project.updated.v1", "project.deleted.v1");
     }
 
     @Test
@@ -76,6 +99,9 @@ class ProjectApiTest {
         }
         mockMvc.perform(post("/internal/project-task-links/{projectId}/905", secondId))
                 .andExpect(status().isConflict());
+        assertThat(lifecycleOutbox.findAll(org.springframework.data.domain.Sort.by("id")))
+                .extracting(com.taskflow.project.entity.LifecycleOutboxEvent::getEventType)
+                .containsExactly("project.created.v1", "project.created.v1", "project.updated.v1");
         mockMvc.perform(put("/projects/{id}", firstId).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Nome atualizado\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.taskIds[0]").value(905));
@@ -148,6 +174,7 @@ class ProjectApiTest {
                         .content("{\"name\":\"Projeto inválido\",\"taskIds\":[999]}"))
                 .andExpect(status().isUnprocessableEntity());
         assertThat(projectRepository.count()).isZero();
+        assertThat(lifecycleOutbox.count()).isZero();
     }
 
     @Test

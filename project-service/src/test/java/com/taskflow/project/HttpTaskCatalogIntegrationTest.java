@@ -5,11 +5,14 @@ import java.net.InetSocketAddress;
 import java.net.SocketTimeoutException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.sun.net.httpserver.HttpServer;
 import com.taskflow.project.client.TaskCatalog;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -24,6 +27,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(properties = {
         "eureka.client.enabled=false",
+        "taskflow.lifecycle-events.publisher-enabled=false",
+        "spring.rabbitmq.listener.simple.auto-startup=false",
+        "spring.rabbitmq.dynamic=false",
         "management.tracing.enabled=false",
         "spring.datasource.url=jdbc:h2:mem:task-timeout-test",
         "spring.datasource.username=sa",
@@ -33,6 +39,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class HttpTaskCatalogIntegrationTest {
     private static final long BACKEND_RESPONSE_DELAY_MILLISECONDS = 4000;
     private static final ExecutorService backendExecutor = Executors.newVirtualThreadPerTaskExecutor();
+    private static final AtomicInteger requestCount = new AtomicInteger();
     private static final HttpServer backend = startBackend();
 
     @Autowired
@@ -45,6 +52,35 @@ class HttpTaskCatalogIntegrationTest {
     void registersTheTaskServiceFeignClient() {
         assertThat(applicationContext.containsBean(
                 "com.taskflow.project.client.TaskServiceClient")).isTrue();
+    }
+
+    @Autowired
+    private CircuitBreakerRegistry circuitBreakers;
+
+    @BeforeEach
+    void resetCircuits() {
+        circuitBreakers.getAllCircuitBreakers().forEach(circuit -> circuit.reset());
+        requestCount.set(0);
+    }
+
+    @Test
+    void stopsCallingTheBackendAfterRepeatedFailures() {
+        for (int attempt = 0; attempt < 5; attempt++) {
+            assertThatThrownBy(() -> taskCatalog.requireExistingTask(3L)).isInstanceOf(ResponseStatusException.class);
+        }
+        int callsBeforeOpenCircuit = requestCount.get();
+        assertThatThrownBy(() -> taskCatalog.requireExistingTask(1L))
+                .isInstanceOfSatisfying(ResponseStatusException.class, exception ->
+                        assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+        assertThat(requestCount.get()).isEqualTo(callsBeforeOpenCircuit);
+    }
+
+    @Test
+    void keepsTheCircuitClosedForBusinessErrors() {
+        for (int attempt = 0; attempt < 6; attempt++) {
+            assertThatThrownBy(() -> taskCatalog.requireExistingTask(2L)).isInstanceOf(ResponseStatusException.class);
+        }
+        taskCatalog.requireExistingTask(1L);
     }
 
     @DynamicPropertySource
@@ -104,6 +140,7 @@ class HttpTaskCatalogIntegrationTest {
                 }
             });
             server.createContext("/tasks/", exchange -> {
+                requestCount.incrementAndGet();
                 try {
                     if (!exchange.getRequestMethod().equals("GET")) {
                         exchange.sendResponseHeaders(405, -1);

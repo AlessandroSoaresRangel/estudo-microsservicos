@@ -37,6 +37,9 @@ class TaskServiceTest {
     @Mock
     private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private com.taskflow.task.messaging.TaskLifecycleEvents lifecycleEvents;
+
     @InjectMocks
     private TaskService taskService;
 

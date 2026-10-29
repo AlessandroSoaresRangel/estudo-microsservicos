@@ -5,6 +5,10 @@ spring:
   application:
     name: api-gateway
   cloud:
+    circuitbreaker:
+      resilience4j:
+        # O cliente HTTP já aplica os limites de conexão e resposta.
+        disable-time-limiter: true
     gateway:
       server:
         webflux:
@@ -27,6 +31,7 @@ spring:
                     name: taskServiceCircuitBreaker
                     fallbackUri: forward:/fallback/tasks
                     statusCodes:
+                      - 500
                       - 502
                       - 503
                       - 504
@@ -44,20 +49,21 @@ spring:
                 - Path=/api/v1/projects,/api/v1/projects/**
               filters:
                 - StripPrefix=2
+                - name: CircuitBreaker
+                  args:
+                    name: projectServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/projects
+                    statusCodes:
+                      - 500
+                      - 502
+                      - 503
+                      - 504
             - id: task-health
               uri: lb://task-service
               predicates:
                 - Path=/api/v1/health,/api/v1/health/**
               filters:
                 - 'RewritePath=/api/v1/health(?<remaining>/?.*), /actuator/health${remaining}'
-                - name: CircuitBreaker
-                  args:
-                    name: taskServiceHealthCircuitBreaker
-                    fallbackUri: forward:/fallback/health
-                    statusCodes:
-                      - 502
-                      - 503
-                      - 504
                 - name: Retry
                   args:
                     retries: 2
@@ -72,23 +78,20 @@ spring:
 
 resilience4j:
   circuitbreaker:
+    configs:
+      default:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 2
+        automaticTransitionFromOpenToHalfOpenEnabled: true
     instances:
       taskServiceCircuitBreaker:
-        slidingWindowType: COUNT_BASED
-        slidingWindowSize: 10
-        minimumNumberOfCalls: 5
-        failureRateThreshold: 50
-        waitDurationInOpenState: 10s
-        permittedNumberOfCallsInHalfOpenState: 2
-        automaticTransitionFromOpenToHalfOpenEnabled: true
-      taskServiceHealthCircuitBreaker:
-        slidingWindowType: COUNT_BASED
-        slidingWindowSize: 10
-        minimumNumberOfCalls: 5
-        failureRateThreshold: 50
-        waitDurationInOpenState: 10s
-        permittedNumberOfCallsInHalfOpenState: 2
-        automaticTransitionFromOpenToHalfOpenEnabled: true
+        baseConfig: default
+      projectServiceCircuitBreaker:
+        baseConfig: default
 
 eureka:
   client:

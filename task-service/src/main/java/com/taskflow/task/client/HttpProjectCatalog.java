@@ -1,6 +1,9 @@
 package com.taskflow.task.client;
 
 import feign.FeignException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
@@ -9,14 +12,17 @@ import org.springframework.web.server.ResponseStatusException;
 public class HttpProjectCatalog implements ProjectCatalog {
     private final ProjectServiceClient client;
 
-    public HttpProjectCatalog(ProjectServiceClient client) {
+    private final CircuitBreaker assignmentCircuit;
+
+    public HttpProjectCatalog(ProjectServiceClient client, CircuitBreakerRegistry circuitBreakers) {
         this.client = client;
+        this.assignmentCircuit = circuitBreakers.circuitBreaker("projectTaskAssignment");
     }
 
     @Override
     public void assignTask(Long projectId, Long taskId) {
         try {
-            client.assignTask(projectId, taskId);
+            assignmentCircuit.executeRunnable(() -> client.assignTask(projectId, taskId));
         } catch (FeignException exception) {
             if (exception.status() == HttpStatus.NOT_FOUND.value()) {
                 throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
@@ -27,19 +33,12 @@ public class HttpProjectCatalog implements ProjectCatalog {
                         "A tarefa já pertence a outro projeto.", exception);
             }
             throw unavailable(exception);
-        }
-    }
-
-    @Override
-    public void releaseTask(Long taskId) {
-        try {
-            client.releaseTask(taskId);
-        } catch (FeignException exception) {
+        } catch (CallNotPermittedException exception) {
             throw unavailable(exception);
         }
     }
 
-    private ResponseStatusException unavailable(FeignException cause) {
+    private ResponseStatusException unavailable(RuntimeException cause) {
         return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                 "Não foi possível vincular as tarefas ao projeto. Tente novamente.", cause);
     }

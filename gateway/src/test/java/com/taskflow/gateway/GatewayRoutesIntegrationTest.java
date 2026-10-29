@@ -39,6 +39,7 @@ import java.util.concurrent.atomic.AtomicReference;
 class GatewayRoutesIntegrationTest {
 
     private static final long BACKEND_RESPONSE_DELAY_MILLISECONDS = 4000;
+    private static final long VALID_RESPONSE_DELAY_MILLISECONDS = 1500;
     private static final ExecutorService backendExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private static final AtomicBoolean failBackends = new AtomicBoolean(false);
     private static final AtomicReference<String> observedTraceparent = new AtomicReference<>();
@@ -66,6 +67,13 @@ class GatewayRoutesIntegrationTest {
         backendOne.stop(0);
         backendTwo.stop(0);
         backendExecutor.shutdownNow();
+    }
+
+    @Test
+    @Order(0)
+    void allowsResponsesWithinTheConfiguredHttpTimeout() {
+        webTestClient.get().uri("/api/v1/projects/within-timeout")
+                .exchange().expectStatus().isOk();
     }
 
     @Test
@@ -145,7 +153,7 @@ class GatewayRoutesIntegrationTest {
         webTestClient.mutate().responseTimeout(Duration.ofSeconds(10)).build()
                 .get().uri("/api/v1/projects/slow")
                 .exchange()
-                .expectStatus().isEqualTo(504);
+                .expectStatus().isEqualTo(503);
     }
 
     @Test
@@ -171,14 +179,47 @@ class GatewayRoutesIntegrationTest {
         }
     }
 
+    @Test
+    @Order(8)
+    void usesAProjectFallbackAfterBackendFailures() {
+        failBackends.set(true);
+        try {
+            for (int attempt = 0; attempt < 6; attempt++) {
+                webTestClient.post().uri("/api/v1/projects")
+                        .exchange().expectStatus().isEqualTo(503)
+                        .expectBody().jsonPath("$.error").isEqualTo("project-service-unavailable");
+            }
+        } finally {
+            failBackends.set(false);
+        }
+    }
+
+    @Test
+    @Order(9)
+    void healthChecksReflectTheBackendWithoutOpeningACircuit() {
+        failBackends.set(true);
+        try {
+            for (int attempt = 0; attempt < 6; attempt++) {
+                webTestClient.get().uri("/api/v1/health/readiness")
+                        .exchange().expectStatus().isEqualTo(503)
+                        .expectBody().jsonPath("$.error").isEqualTo("backend-unavailable");
+            }
+        } finally {
+            failBackends.set(false);
+        }
+        webTestClient.get().uri("/api/v1/health/readiness").exchange().expectStatus().isOk();
+    }
+
     private static HttpServer startBackend(String name) {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.setExecutor(backendExecutor);
             server.createContext("/", exchange -> {
-                if (exchange.getRequestURI().getPath().endsWith("/slow")) {
+                if (exchange.getRequestURI().getPath().endsWith("/slow")
+                        || exchange.getRequestURI().getPath().endsWith("/within-timeout")) {
                     try {
-                        Thread.sleep(BACKEND_RESPONSE_DELAY_MILLISECONDS);
+                        Thread.sleep(exchange.getRequestURI().getPath().endsWith("/slow")
+                                ? BACKEND_RESPONSE_DELAY_MILLISECONDS : VALID_RESPONSE_DELAY_MILLISECONDS);
                     } catch (InterruptedException exception) {
                         Thread.currentThread().interrupt();
                         exchange.close();

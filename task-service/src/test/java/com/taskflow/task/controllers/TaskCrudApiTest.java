@@ -12,6 +12,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.assertj.core.api.Assertions.assertThat;
 import com.taskflow.task.repository.TaskRepository;
+import com.taskflow.task.repository.LifecycleOutboxRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -31,6 +32,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties = {
         "eureka.client.enabled=false",
+        "taskflow.lifecycle-events.publisher-enabled=false",
+        "spring.rabbitmq.listener.simple.auto-startup=false",
+        "spring.rabbitmq.dynamic=false",
                 "taskflow.task-link-cleanup.enabled=false",
         "management.zipkin.tracing.export.enabled=false",
         "spring.datasource.url=jdbc:h2:mem:task-crud-api",
@@ -54,8 +58,12 @@ class TaskCrudApiTest {
     @Autowired
     private TaskRepository taskRepository;
 
+    @Autowired
+    private LifecycleOutboxRepository lifecycleOutbox;
+
     @BeforeEach
     void clearTasks() {
+        lifecycleOutbox.deleteAll();
         taskRepository.deleteAll();
         pendingUnlinks.deleteAll();
     }
@@ -68,6 +76,7 @@ class TaskCrudApiTest {
                         .content("{\"title\":\"Tarefa inválida\",\"projectId\":999}"))
                 .andExpect(status().isUnprocessableEntity());
         assertThat(taskRepository.count()).isZero();
+        assertThat(lifecycleOutbox.count()).isZero();
     }
 
     @Test
@@ -78,6 +87,7 @@ class TaskCrudApiTest {
                         .content("{\"title\":\"Tarefa indisponível\",\"projectId\":1}"))
                 .andExpect(status().isServiceUnavailable());
         assertThat(taskRepository.count()).isZero();
+        assertThat(lifecycleOutbox.count()).isZero();
         assertThat(pendingUnlinks.count()).isEqualTo(1);
     }
 
@@ -122,6 +132,7 @@ class TaskCrudApiTest {
                 .andExpect(jsonPath("$.code").value("PROJECT_REQUIRED"))
                 .andExpect(jsonPath("$.field").value("projectId"));
         assertThat(taskRepository.count()).isZero();
+        assertThat(lifecycleOutbox.count()).isZero();
     }
 
     @Test
@@ -230,5 +241,8 @@ class TaskCrudApiTest {
 
         mockMvc.perform(get("/tasks/{id}", id))
                 .andExpect(status().isNotFound());
+        assertThat(lifecycleOutbox.findAll(org.springframework.data.domain.Sort.by("id")))
+                .extracting(com.taskflow.task.entity.LifecycleOutboxEvent::getEventType)
+                .containsExactly("task.created.v1", "task.updated.v1", "task.deleted.v1");
     }
 }

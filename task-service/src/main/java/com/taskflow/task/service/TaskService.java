@@ -1,6 +1,7 @@
 package com.taskflow.task.service;
 
 import com.taskflow.task.client.ProjectCatalog;
+import com.taskflow.task.messaging.TaskLifecycleEvents;
 import com.taskflow.task.dto.TaskResponse;
 import com.taskflow.task.entity.PendingTaskUnlink;
 import com.taskflow.task.entity.Task;
@@ -24,14 +25,16 @@ public class TaskService {
     private final ProjectCatalog projectCatalog;
     private final PendingTaskUnlinkRepository pendingUnlinks;
     private final ApplicationEventPublisher eventPublisher;
+    private final TaskLifecycleEvents lifecycleEvents;
 
     public TaskService(TaskRepository taskRepository, ProjectCatalog projectCatalog,
                        PendingTaskUnlinkRepository pendingUnlinks,
-                       ApplicationEventPublisher eventPublisher) {
+                       ApplicationEventPublisher eventPublisher, TaskLifecycleEvents lifecycleEvents) {
         this.taskRepository = taskRepository;
         this.projectCatalog = projectCatalog;
         this.pendingUnlinks = pendingUnlinks;
         this.eventPublisher = eventPublisher;
+        this.lifecycleEvents = lifecycleEvents;
     }
 
     public Page<TaskResponse> findAll(Pageable pageable) {
@@ -49,6 +52,7 @@ public class TaskService {
         eventPublisher.publishEvent(new TaskLinkAttempted(task.getId()));
         // O vínculo remoto é confirmado antes do commit local. Falhas revertem a criação.
         projectCatalog.assignTask(projectId, task.getId());
+        lifecycleEvents.created(task);
         return TaskResponse.from(task);
     }
 
@@ -60,12 +64,16 @@ public class TaskService {
         projectCatalog.assignTask(projectId, id);
         task.setTitle(title);
         task.setDescription(description);
-        return TaskResponse.from(taskRepository.save(task));
+        Task savedTask = taskRepository.save(task);
+        lifecycleEvents.updated(savedTask);
+        return TaskResponse.from(savedTask);
     }
 
     @Transactional
     public void delete(Long id) {
-        taskRepository.delete(findTaskById(id));
+        Task task = findTaskById(id);
+        lifecycleEvents.deleted(task);
+        taskRepository.delete(task);
         // A fila e a exclusão são persistidas na mesma transação. O consumidor só vê commits.
         pendingUnlinks.save(new PendingTaskUnlink(id));
     }

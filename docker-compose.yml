@@ -1,4 +1,21 @@
 services:
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER:-taskflow}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD:-taskflow-local}"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
   eureka-server:
     build:
       context: ./eureka-server
@@ -42,9 +59,14 @@ services:
     env_file:
       - ./task-service/.env
     environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: "${RABBITMQ_USER:-taskflow}"
+      RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD:-taskflow-local}"
       TASK_INSTANCE: "1"
       APP_VERSION: "${APP_VERSION:-1.0.0}"
     depends_on:
+      rabbitmq:
+        condition: service_healthy
       project-service:
         condition: service_started
       eureka-server:
@@ -62,9 +84,14 @@ services:
     env_file:
       - ./task-service/.env
     environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: "${RABBITMQ_USER:-taskflow}"
+      RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD:-taskflow-local}"
       TASK_INSTANCE: "2"
       APP_VERSION: "${APP_VERSION:-1.0.0}"
     depends_on:
+      rabbitmq:
+        condition: service_healthy
       project-service:
         condition: service_started
       eureka-server:
@@ -82,9 +109,14 @@ services:
     env_file:
       - ./task-service/.env
     environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: "${RABBITMQ_USER:-taskflow}"
+      RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD:-taskflow-local}"
       TASK_INSTANCE: "3"
       APP_VERSION: "${APP_VERSION:-1.0.0}"
     depends_on:
+      rabbitmq:
+        condition: service_healthy
       project-service:
         condition: service_started
       eureka-server:
@@ -114,8 +146,13 @@ services:
     env_file:
       - ./project-service/.env
     environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: "${RABBITMQ_USER:-taskflow}"
+      RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD:-taskflow-local}"
       APP_VERSION: "${APP_VERSION:-1.0.0}"
     depends_on:
+      rabbitmq:
+        condition: service_healthy
       eureka-server:
         condition: service_started
       zipkin:
@@ -149,6 +186,7 @@ services:
       - prometheus
 
 volumes:
+  rabbitmq_data:
   grafana_data:
   task_db_data:
   project_db_data:

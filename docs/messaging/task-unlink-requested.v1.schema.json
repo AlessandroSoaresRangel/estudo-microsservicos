@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "task-unlink-requested.v1",
+  "description": "Solicita remoção idempotente do vínculo de uma tarefa excluída ou cuja criação foi revertida.",
+  "type": "object",
+  "required": ["taskId"],
+  "properties": {
+    "taskId": { "type": "integer", "minimum": 1 }
+  },
+  "additionalProperties": false
+}

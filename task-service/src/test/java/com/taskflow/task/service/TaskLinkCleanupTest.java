@@ -2,14 +2,13 @@ package com.taskflow.task.service;
 
 import java.util.List;
 
-import com.taskflow.task.client.ProjectCatalog;
+import com.taskflow.task.messaging.TaskUnlinkPublisher;
+import com.taskflow.task.messaging.TaskUnlinkPublicationException;
 import com.taskflow.task.entity.PendingTaskUnlink;
 import com.taskflow.task.repository.PendingTaskUnlinkRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -22,16 +21,16 @@ class TaskLinkCleanupTest {
     @Test
     void retriesFailedUnlinksAndOnlyAcknowledgesSuccessfulRequests() {
         PendingTaskUnlinkRepository repository = mock(PendingTaskUnlinkRepository.class);
-        ProjectCatalog catalog = mock(ProjectCatalog.class);
+        TaskUnlinkPublisher publisher = mock(TaskUnlinkPublisher.class);
         when(repository.findAll(any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(new PendingTaskUnlink(42L))));
-        doThrow(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE))
-                .doNothing().when(catalog).releaseTask(42L);
-        TaskLinkCleanup cleanup = new TaskLinkCleanup(repository, catalog);
+        doThrow(new TaskUnlinkPublicationException("Broker indisponível", null))
+                .doNothing().when(publisher).publish(42L);
+        TaskLinkCleanup cleanup = new TaskLinkCleanup(repository, publisher);
 
-        cleanup.releaseDeletedTasks();
+        cleanup.publishPendingUnlinks();
         verify(repository, never()).deleteById(42L);
-        cleanup.releaseDeletedTasks();
+        cleanup.publishPendingUnlinks();
         verify(repository).deleteById(42L);
     }
 }
